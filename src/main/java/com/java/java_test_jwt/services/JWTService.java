@@ -1,21 +1,28 @@
 package com.java.java_test_jwt.services;
 
 import com.java.java_test_jwt.dtos.UserDTO;
+import com.java.java_test_jwt.models.Token;
 import com.java.java_test_jwt.models.User;
+import com.java.java_test_jwt.repository.TokenRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Date;
 
 @Service
 public class JWTService {
 
+    @Autowired
+    private TokenRepository tokenRepository;
+
     private static final String SECRET_KEY = "X/mI85Z+Dzd3dKSdNbXnUGjFYN5D7GhLM4KV/YSKKEg=";
 
-    // Создание JWT токена
     public String generateToken(String user) {
         return Jwts.builder()
                 .setSubject(user)
@@ -25,7 +32,22 @@ public class JWTService {
                 .compact();
     }
 
-    // Проверка JWT токена
+    public void saveTokenInDB(Long userId, String token) {
+        Token refreshToken = new Token();
+        refreshToken.setUserId(userId);
+        refreshToken.setRefreshToken(token);
+        tokenRepository.save(refreshToken);
+    }
+
+    public String createCookie(String token) {
+        return ResponseCookie.from("jwt", token)
+                .httpOnly(true)
+                .path("/")
+                .maxAge(Duration.ofDays(1))
+                .build()
+                .toString();
+    }
+
     public Claims validateToken(String token) {
         return Jwts.parser()
                 .setSigningKey(SECRET_KEY)
@@ -33,7 +55,6 @@ public class JWTService {
                 .getBody();
     }
 
-    // Извлечение имени пользователя из токена
     public String extractUsername(String token) {
         return validateToken(token).getSubject();
     }

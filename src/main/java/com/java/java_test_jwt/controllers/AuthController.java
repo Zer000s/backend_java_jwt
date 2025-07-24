@@ -1,5 +1,7 @@
 package com.java.java_test_jwt.controllers;
 
+import com.java.java_test_jwt.dtos.TokenDTO;
+import com.java.java_test_jwt.dtos.UserDTO;
 import com.java.java_test_jwt.models.Token;
 import com.java.java_test_jwt.models.User;
 import com.java.java_test_jwt.repository.TokenRepository;
@@ -44,14 +46,10 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("Username is already taken");
             }
             user.setPassword(passwordEncoder.encode(user.getPassword()));
-            String token = jwtService.generateToken(user.getUsername());
             userRepository.save(user);
-            String cookie = ResponseCookie.from("jwt", token)
-                    .httpOnly(true)
-                    .path("/")
-                    .maxAge(Duration.ofDays(1))
-                    .build()
-                    .toString();
+            String token = jwtService.generateToken(user.getId().toString());
+            jwtService.saveTokenInDB(user.getId(), token);
+            String cookie = jwtService.createCookie(token);
             return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body(user);
         }
         catch (Exception e) {
@@ -66,14 +64,17 @@ public class AuthController {
             if (existingUser.isEmpty() || !passwordEncoder.matches(user.getPassword(), existingUser.get().getPassword())) {
                 return ResponseEntity.badRequest().body("Invalid credentials");
             }
-            String token = jwtService.generateToken(user.getUsername());
-            String cookie = ResponseCookie.from("jwt", token)
-                    .httpOnly(true)
-                    .path("/")
-                    .maxAge(Duration.ofDays(1))
-                    .build()
-                    .toString();
-            return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body(existingUser);
+            String token = jwtService.generateToken(existingUser.get().getId().toString());
+            String cookie = jwtService.createCookie(token);
+            UserDTO userDTO = new UserDTO(existingUser.get().getId(), existingUser.get().getUsername());
+            Optional<Token> existingToken = tokenRepository.findTokenByUserId(existingUser.get().getId());
+            if (existingToken.isEmpty()) {
+                jwtService.saveTokenInDB(existingUser.get().getId(), token);
+                return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body(userDTO);
+            }
+            existingToken.get().setRefreshToken(token);
+            tokenRepository.save(existingToken.get());
+            return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body(userDTO);
         }
         catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -88,8 +89,20 @@ public class AuthController {
             }
             Claims tokenData = jwtService.validateToken(refreshToken);
             Optional<Token> tokenIsDB = tokenRepository.findTokenByRefreshToken(refreshToken);
-            String username = tokenData.getSubject();
-            return ResponseEntity.ok().body(username);
+            String userId = tokenData.getSubject();
+            if(tokenIsDB.isEmpty() || userId == null) {
+                return new ResponseEntity<>("Unauthorized", HttpStatus.UNAUTHORIZED);
+            }
+            String token = jwtService.generateToken(userId);
+            String cookie = jwtService.createCookie(token);
+            Optional<Token> existingToken = tokenRepository.findTokenByUserId(Long.parseLong(userId));
+            if (existingToken.isEmpty()) {
+                jwtService.saveTokenInDB(Long.parseLong(userId), token);
+                return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body("Success");
+            }
+            existingToken.get().setRefreshToken(token);
+            tokenRepository.save(existingToken.get());
+            return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie).body("Success");
         }
         catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
